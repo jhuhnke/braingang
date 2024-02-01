@@ -1,0 +1,9 @@
+[package]
+name = "braingang"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet", override=true }
+
+[addresses]
+braingang = "0x0"
+sui="0x2"
