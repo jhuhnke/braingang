@@ -1,111 +1,142 @@
-module braingang::braingang {
-    use std::string::String; 
+#[allow(unused_mut_parameter)]
+module braingang::Braingang {
+    use std::string; 
     use std::vector; 
     use sui::object::{Self, ID, UID}; 
     use sui::tx_context::{Self, TxContext}; 
+    use sui::transfer; 
     use sui::event; 
 
-    const ROYALTY_PERCENTAGE: u64 = 5;
-    const ROYALTY_WALLET_ADDRESS: address = @0x1;
-
-    // Owner can add new traits and change image of Brain Gang 
-    struct Braingang has key, store {
+    // Structs
+    struct Braingang has key {
         id: UID, // ID of the Brain Gang NFT 
-        owner: address, // Address of the current NFT owner 
-        name: String, // Name of the NFT 
-        traits: vector<String>, // Metadata 
-        url: String, // ipfs link 
+        name: string::String, // Name of the NFT 
+        traits: string::String, // Metadata 
+        url: string::String, // ipfs link 
     }
 
-    // Event to emit upon successful transfer of NFT ownership 
-    struct OwnershipTransferred has copy, drop {
-        braingang_id: ID, 
-        old_owner: address, 
-        new_owner: address,
+    struct NFTGlobalData has key {
+        id: UID, 
+        maxSupply: u64, 
+        mintedSupply: u64, 
+        royaltyPercent: u64, 
+        startingPrice: u64, 
+        mintingEnabled: bool, 
+        owner: address, 
+        mintedAddresses: vector<address>
     }
 
-    struct LastSalePrice has store, drop {
-        price: u64, 
+    struct Ownership has key {
+        id: UID
     }
 
-    public fun transfer_ownership(
-        braingang: &mut Braingang,
-        new_owner: address,
-        sale_price: u64, // Assuming sale price is provided
-        ctx: &mut TxContext,
-    ) {
-        let caller_address = tx_context::sender(ctx);
-        assert!(braingang.owner == caller_address, 1002);
-
-        let royalty_amount = sale_price * ROYALTY_PERCENTAGE / 100;
-        
-        // Transfer royalty amount to the recipient
-        // sui::transfer::coin_to_address(ctx, ROYALTY_WALLET_ADDRESS, royalty_amount); 
-
-        event::emit(OwnershipTransferred {
-            braingang_id: object::uid_to_inner(&braingang.id),
-            old_owner: braingang.owner,
-            new_owner: new_owner,
-        });
-
-        braingang.owner = new_owner;
-    }
-
-    // Init the last sale price with a starting value 
-    public fun initialize(starting_price: u64) {
-        let last_sale_price = LastSalePrice { price: starting_price }; 
-    }
-
-    // Emit event when new Brain Gang NFT is minted
     struct BraingangMinted has copy, drop {
-        braingang_id: ID, // Braingang ID
-        minted_by: address, //0x of the minter
+        braingang_id: ID, 
+        minted_by: address, 
     }
 
-    // Mint new NFT and transfer to "sender" of the mint transaction
-    public fun mint(
-        name: String,
-        traits: vector<String>,
-        url: String,
-        ctx: &mut TxContext
-    ): Braingang {
-        let starting_price = 1; 
-        // sui::transfer::coin(ctx, starting_price); 
+    /// Initializer 
+    fun init(ctx: &mut TxContext) {
+        let ownership = Ownership {
+            id: object::new(ctx)
+        }; 
 
-        let id = object::new(ctx);
-        event::emit(BraingangMinted {
-            braingang_id: object::uid_to_inner(&id),
-            minted_by: tx_context::sender(ctx),
-        });
+        let nftGlobalData = NFTGlobalData {
+            id: object::new(ctx), 
+            maxSupply: 25, 
+            mintedSupply: 0, 
+            royaltyPercent: 5,
+            startingPrice: 1, 
+            mintingEnabled: true, 
+            owner: tx_context::sender(ctx), 
+            mintedAddresses: vector::empty()
+        }; 
 
-        Braingang {
-            id,
-            owner: tx_context::sender(ctx),
-            name,
-            traits,
-            url
-        }
+        transfer::share_object(nftGlobalData); 
+        transfer::transfer(ownership, tx_context::sender(ctx)); 
+    }
+
+    // Contract Owner Only Functions 
+    entry fun changeMintingStatus(globalData: &mut NFTGlobalData, ctx: &mut TxContext) {
+        assert!(globalData.owner == tx_context::sender(ctx), 0); 
+        globalData.mintingEnabled = !globalData.mintingEnabled; 
+    }
+
+    entry fun changeRoyaltyPercent(flag: u64, globalData: &mut NFTGlobalData, ctx: &mut TxContext) {
+        assert!(globalData.owner == tx_context::sender(ctx), 0); 
+        globalData.royaltyPercent = flag; 
+    }
+
+    entry fun changeStartingPrice(flag: u64, globalData: &mut NFTGlobalData, ctx: &mut TxContext) {
+        assert!(globalData.owner == tx_context::sender(ctx), 0); 
+        globalData.startingPrice = flag; 
     }
 
     // Add new metadata / metadata mutability
-    public fun add_trait(braingang: &mut Braingang, trait: String) {
-        vector::push_back(&mut braingang.traits, trait); 
+    entry fun addTrait(braingang: &mut Braingang, globalData: &mut NFTGlobalData, trait: string::String, ctx: &mut TxContext) {
+        assert!(globalData.owner == tx_context::sender(ctx), 0); 
+        braingang.traits = trait; 
     }
 
     // Ability to change image 
-    public fun set_url(braingang: &mut Braingang, url: String) {      
+    entry fun setUrl(braingang: &mut Braingang, globalData: &mut NFTGlobalData, url: string::String, ctx: &mut TxContext) {   
+        assert!(globalData.owner == tx_context::sender(ctx), 0);    
         braingang.url = url; 
     }
 
-    // Allow owner to burn and get storage rebate 
-    public fun destroy(ctx: &mut TxContext, braingang_id: UID) {
-        object::delete(braingang_id);
+    // Minting Function 
+    entry fun mintBraingang(globalData: &mut NFTGlobalData, name: vector<u8>, traits: vector<u8>, url: vector<u8>, ctx: &mut TxContext) {
+        assert!(globalData.mintingEnabled, 0); 
+        assert!(globalData.mintedSupply < globalData.maxSupply, 0); 
+
+        let sender = tx_context::sender(ctx); 
+
+        let nft = Braingang {
+            id: object::new(ctx), 
+            name: string::utf8(name), 
+            traits: string::utf8(traits), 
+            url: string::utf8(url)
+        }; 
+
+        event::emit(BraingangMinted {
+            braingang_id: object::uid_to_inner(&nft.id), 
+            minted_by: tx_context::sender(ctx),
+        });
+
+        globalData.mintedSupply = globalData.mintedSupply + 1; 
+        globalData.startingPrice = (globalData.startingPrice / 3) * 2; 
+
+        vector::push_back(&mut globalData.mintedAddresses, sender); 
+        transfer::transfer(nft, sender);
+
     }
 
-    // Make name, traits, and ipfs link publicly viewable 
-    public fun name(braingang: &Braingang): String { braingang.name }
+    // Transfer and Burn Functions 
+    entry fun transferBraingang(nft: Braingang, recipient: address, _: &mut TxContext) {
+        transfer::transfer(nft, recipient)
+    }
+    
+    entry fun destroy(nft: Braingang) {
+        let Braingang { id, name: _, traits: _, url: _ } = nft; 
+        object::delete(id); 
+    }
 
-    public fun traits(braingang: &Braingang): &vector<String> { &braingang.traits }
+    // Getters
+    public fun name(nft: &Braingang): &string::String {
+        &nft.name
+    }
 
-    public fun url(braingang: &Braingang): String { braingang.url } 
+    public fun traits(nft: &Braingang): &string::String {
+        &nft.traits
+    }
+    
+    public fun url(nft: &Braingang): &string::String {
+        &nft.url
+    }
+
+    #[test_only]
+    /// Wrapper of module initializer for testing
+    public fun test_init(ctx: &mut TxContext) {
+        init(ctx)
+    }
 }
