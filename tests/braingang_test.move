@@ -106,20 +106,22 @@ module braingang::brain_tests {
             mintBraingang(&mut globalData, name, traits, url, ts::ctx(scenario)); 
             ts::return_shared(globalData); 
         };
+    }
 
-        // Transfer the NFT to Bob
+    fun transfer_test(scenario: &mut ts::Scenario) {
         ts::next_tx(scenario, ALICE); 
         {
             let nft = ts::take_from_sender<Braingang>(scenario); 
             transferBraingang(nft, BOB, ts::ctx(scenario)); 
-        };
+        }; 
+    }
 
-        // Burn that mfer
+    fun burn_test(scenario: &mut ts::Scenario) {
         ts::next_tx(scenario, BOB); 
         {
             let nft = ts::take_from_sender<Braingang>(scenario); 
             destroy(nft); 
-        } 
+        }; 
     }
 
     #[test]
@@ -157,6 +159,8 @@ module braingang::brain_tests {
             b"ipfs://bafybeids37z3r2vnfmtksmgsyi6ouumjshf6nlodl2r2gk7jps3xzjsa4m", 
             scenario
         ); 
+        transfer_test(scenario); 
+        burn_test(scenario);
         ts::end(scenario_val);
     }
 
